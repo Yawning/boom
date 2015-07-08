@@ -21,7 +21,13 @@ import (
 
 	"net"
 	"net/http"
+	"net/url"
 	"time"
+
+	"sync/atomic"
+	"strconv"
+
+	"golang.org/x/net/proxy"
 )
 
 // Run makes all the requests, prints the summary. It blocks until
@@ -55,9 +61,25 @@ func (b *Boomer) worker(wg *sync.WaitGroup, ch chan *http.Request) {
 		TLSHandshakeTimeout: time.Duration(b.Timeout) * time.Millisecond,
 		Proxy:               http.ProxyURL(b.ProxyAddr),
 	}
-	client := &http.Client{Transport: tr}
-	_ = client
+
+
+	//client := &http.Client{Transport: tr}
+	//_ = client
 	for req := range ch {
+		if b.SocksAddr != nil {
+			torSocksAddr := *b.SocksAddr
+			if b.TorAutoIsolate {
+				torSocksAddr.User = url.UserPassword(b.isolatedSocksAuth())
+			}
+
+			proxyDialer, err := proxy.FromURL(&torSocksAddr, proxy.Direct)
+			if err != nil {
+				panic(err)
+			}
+			tr.Dial = proxyDialer.Dial
+		}
+		client := &http.Client{Transport: tr}
+
 		s := time.Now()
 		code := 0
 		size := int64(0)
@@ -104,4 +126,14 @@ func (b *Boomer) run() {
 	close(jobs)
 
 	wg.Wait()
+}
+
+func (b *Boomer) isolatedSocksAuth() (username, password string) {
+	if b.SocksAddr == nil || !b.TorAutoIsolate {
+		panic("getSocksAuth() without appropriate config?")
+	}
+
+	now := time.Now().UnixNano()
+	id := atomic.AddUint64(&b.isolationID, 1)
+	return "boomer", strconv.FormatUint(id, 10) + "-" + strconv.FormatInt(now, 10)
 }

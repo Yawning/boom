@@ -92,8 +92,21 @@ type Boomer struct {
 	// Optional.
 	ProxyAddr *url.URL
 
+	//
+	// Tor HS Testing Options:
+	//
+
+	// SocksAddr is the address of a SOCKS 5 proxy server in the format of
+	// "host:port", Optional.
+	SocksAddr *url.URL
+
+	// TorAutoIsolate will set/permute the SOCKS 5 isolation.
+	TorAutoIsolate bool
+
 	bar     *pb.ProgressBar
 	results chan *result
+
+	isolationID uint64
 }
 
 func newPb(size int) (bar *pb.ProgressBar) {

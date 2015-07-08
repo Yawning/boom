@@ -26,7 +26,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/rakyll/boom/boomer"
+	"github.com/yawning/boom/boomer"
 )
 
 const (
@@ -54,6 +54,9 @@ var (
 	disableCompression = flag.Bool("disable-compression", false, "")
 	disableKeepAlives  = flag.Bool("disable-keepalive", false, "")
 	proxyAddr          = flag.String("x", "", "")
+
+	socksAddr          = flag.String("s", "", "")
+	torAutoIsolate     = flag.Bool("tor-auto-isolate", false, "")
 )
 
 var usage = `Usage: boom [options...] <url>
@@ -82,6 +85,15 @@ Options:
                         connections between different HTTP requests.
   -cpus                 Number of used cpu cores.
                         (default for current machine is %d cores)
+
+Tor HS Testing options:
+
+  -s  SOCKS 5 Proxy address as host:port.
+
+  -tor-auto-isolate     Automatically set and permute the SOCKS 5 proxy
+                        authentication to force Tor to build new circuits.
+                        (implicitly sets '-x')
+
 `
 
 var defaultDNSResolver dnsResolver = &netDNSResolver{}
@@ -128,7 +140,7 @@ func main() {
 	)
 
 	method = strings.ToUpper(*m)
-	url, originalHost = resolveUrl(flag.Args()[0])
+	//url, originalHost = resolveUrl(flag.Args()[0])
 
 	// set content-type
 	header.Set("Content-Type", *contentType)
@@ -170,6 +182,24 @@ func main() {
 		}
 	}
 
+	// Tor HS testing options.
+	var socksURL *gourl.URL
+	if *torAutoIsolate {
+		*disableKeepAlives = true
+	}
+	if *socksAddr != "" {
+		var err error
+		_, _, err = net.SplitHostPort(*socksAddr)
+		if err != nil {
+			usageAndExit(err.Error())
+		}
+		socksURL, _ = gourl.Parse("socks5://" + *socksAddr)
+		if *proxyAddr != "" {
+			usageAndExit("HTTP and SOCKS proxys are mutually exclusive.")
+		}
+	}
+	url, originalHost = resolveUrl(flag.Args()[0], socksURL != nil)
+
 	(&boomer.Boomer{
 		Req: &boomer.ReqOpts{
 			Method:       method,
@@ -189,6 +219,9 @@ func main() {
 		DisableKeepAlives:  *disableKeepAlives,
 		ProxyAddr:          proxyURL,
 		Output:             *output,
+
+		SocksAddr:          socksURL,
+		TorAutoIsolate:     *torAutoIsolate,
 	}).Run()
 }
 
@@ -204,12 +237,18 @@ func main() {
 // <schema>://google.com[:port]
 // <schema>://173.194.116.73[:port]
 // <schema>://\[2a00:1450:400a:806::1007\][:port]
-func resolveUrl(url string) (string, string) {
+//
+// If skipResolve is set, don't bother actually resolving anything,
+// since the upstream proxy is expecting a FQDN (Eg: Tor's SOCKS proxy).
+func resolveUrl(url string, skipResolve bool) (string, string) {
 	uri, err := gourl.ParseRequestURI(url)
 	if err != nil {
 		usageAndExit(err.Error())
 	}
 	originalHost := uri.Host
+	if skipResolve {
+		return uri.String(), originalHost
+	}
 
 	serverName, port, err := net.SplitHostPort(uri.Host)
 	if err != nil {
