@@ -92,7 +92,7 @@ Tor HS Testing options:
 
   -tor-auto-isolate     Automatically set and permute the SOCKS 5 proxy
                         authentication to force Tor to build new circuits.
-                        (implicitly sets '-x')
+                        (implicitly sets '-disable-keepalive')
 
 `
 
